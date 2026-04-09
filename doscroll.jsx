@@ -1,58 +1,45 @@
 import { useState, useEffect, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 const DEFAULT_CATEGORIES = ["📚 Read", "🎬 Watch", "🎧 Listen", "🎮 Play", "📝 Learn", "🔧 Build", "🌐 Explore"];
 
 const GRADIENT_PHOTOS = ["linear-gradient(135deg, #667eea 0%, #764ba2 100%)","linear-gradient(135deg, #f093fb 0%, #f5576c 100%)","linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)","linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)","linear-gradient(135deg, #fa709a 0%, #fee140 100%)","linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)","linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)","linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)","linear-gradient(135deg, #f5576c 0%, #ff9068 100%)","linear-gradient(160deg, #0093E9 0%, #80D0C7 100%)"];
 
-// Real AI processing via Claude API
+// Helpers to map between app (camelCase) and Supabase (snake_case)
+const fromRow = (row) => ({ ...row, hiddenUntil: row.hidden_until, createdAt: row.created_at });
+const toRow = ({ hiddenUntil, createdAt, ...rest }) => ({
+  ...rest, hidden_until: hiddenUntil, created_at: createdAt,
+});
+
+// AI processing via serverless function
 const processLink = async (url, note, userCategory, categoriesList) => {
   let domainKey = "";
   try {
     domainKey = new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace("www.", "");
   } catch { domainKey = url.slice(0, 30); }
 
-  const needsCategory = !userCategory;
-  const categoryInstruction = needsCategory
-    ? `Pick the single best category from this exact list: ${JSON.stringify(categoriesList)}. Return it exactly as written.`
-    : `The user already chose the category "${userCategory}". Return that exact string as the category.`;
-
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("/api/process-link", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{ role: "user", content: `Analyze this URL and generate metadata for a content feed card.
-
-URL: ${url}
-${note ? `User note: ${note}` : ""}
-
-Instructions:
-1. Search the web for this URL to understand what the content is about.
-2. Generate a compelling, concise title (max 60 chars).
-3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.
-4. ${categoryInstruction}
-
-Respond with ONLY valid JSON, no markdown backticks, no preamble:
-{"title": "...", "summary": "...", "category": "..."}` }],
-      }),
+      body: JSON.stringify({ url, note, userCategory, categoriesList }),
     });
 
     const data = await response.json();
 
-    // Extract text from response (may have multiple content blocks due to tool use)
     const textBlock = data.content?.filter(b => b.type === "text").map(b => b.text).join("") || "";
     const clean = textBlock.replace(/```json|```/g, "").trim();
 
     let parsed;
     try {
-      // Try to find JSON in the response
       const jsonMatch = clean.match(/\{[\s\S]*\}/);
       parsed = JSON.parse(jsonMatch ? jsonMatch[0] : clean);
     } catch {
-      // Fallback if JSON parsing fails
       parsed = {
         title: domainKey,
         summary: `Content from ${domainKey}. Add a note to remind yourself what this is about.`,
@@ -73,7 +60,6 @@ Respond with ONLY valid JSON, no markdown backticks, no preamble:
     };
   } catch (err) {
     console.error("AI processing failed:", err);
-    // Fallback: create post with basic info
     return {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       url,
@@ -501,8 +487,94 @@ function SearchOverlay({ posts, onClose, onStar, onHide, onRemove, onArchive, on
   );
 }
 
+// ─── Auth Screen ────────────────────────────────────────────
+function AuthScreen() {
+  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  const handle = async () => {
+    setLoading(true); setError(null); setSuccess(null);
+    if (mode === "login") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setError(error.message);
+    } else {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) setError(error.message);
+      else setSuccess("Check your email to confirm your account, then log in.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      width: "100%", maxWidth: 480, margin: "0 auto", height: "100vh",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      background: "#f0f2f5", fontFamily: "'DM Sans', system-ui, sans-serif", padding: "24px",
+    }}>
+      <div style={{ fontSize: "32px", fontWeight: 700, marginBottom: "6px", color: "#1a1a2e" }}>
+        do<span style={{ color: "#6366f1" }}>Scroll</span>
+      </div>
+      <div style={{ fontSize: "13px", color: "#8e8ea0", marginBottom: "32px" }}>
+        Your personal content feed
+      </div>
+
+      <div style={{
+        width: "100%", background: "#fff", borderRadius: "16px",
+        padding: "28px 24px", border: "1px solid #e4e4e8",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
+      }}>
+        <div style={{ display: "flex", marginBottom: "24px", borderRadius: "10px", overflow: "hidden", border: "1px solid #e4e4e8" }}>
+          {["login", "signup"].map(m => (
+            <button key={m} onClick={() => { setMode(m); setError(null); setSuccess(null); }}
+              style={{
+                flex: 1, padding: "10px", border: "none", cursor: "pointer",
+                background: mode === m ? "#6366f1" : "#f5f5f7",
+                color: mode === m ? "#fff" : "#8e8ea0",
+                fontSize: "13px", fontWeight: 600, fontFamily: "inherit",
+                transition: "all 0.15s ease",
+              }}>
+              {m === "login" ? "Log In" : "Sign Up"}
+            </button>
+          ))}
+        </div>
+
+        <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#8e8ea0", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Email</label>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          style={{ width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #e4e4e8", background: "#f5f5f7", fontSize: "14px", color: "#1a1a2e", outline: "none", fontFamily: "inherit", marginBottom: "16px" }} />
+
+        <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#8e8ea0", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Password</label>
+        <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+          placeholder="••••••••"
+          onKeyDown={e => e.key === "Enter" && handle()}
+          style={{ width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #e4e4e8", background: "#f5f5f7", fontSize: "14px", color: "#1a1a2e", outline: "none", fontFamily: "inherit", marginBottom: "20px" }} />
+
+        {error && <div style={{ padding: "10px 14px", background: "rgba(239,68,68,0.08)", borderRadius: "8px", color: "#ef4444", fontSize: "13px", marginBottom: "16px" }}>{error}</div>}
+        {success && <div style={{ padding: "10px 14px", background: "rgba(16,185,129,0.08)", borderRadius: "8px", color: "#10b981", fontSize: "13px", marginBottom: "16px" }}>{success}</div>}
+
+        <button onClick={handle} disabled={loading || !email || !password}
+          style={{
+            width: "100%", padding: "13px", borderRadius: "10px", border: "none",
+            background: email && password ? "#6366f1" : "#e4e4e8",
+            color: email && password ? "#fff" : "#8e8ea0",
+            fontSize: "15px", fontWeight: 600, cursor: email && password ? "pointer" : "not-allowed",
+            fontFamily: "inherit", transition: "all 0.2s ease",
+          }}>
+          {loading ? "..." : mode === "login" ? "Log In" : "Create Account"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main App ───────────────────────────────────────────────
 export default function DoScrollApp() {
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [tab, setTab] = useState("feed");
   const [posts, setPosts] = useState([]);
   const [linkInput, setLinkInput] = useState("");
@@ -517,37 +589,33 @@ export default function DoScrollApp() {
   const feedRef = useRef(null);
   const touchStartY = useRef(0);
 
-  // Load persisted data on mount
+  // Auth state
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load data from Supabase when session is ready
+  useEffect(() => {
+    if (!session) return;
     const load = async () => {
-      try {
-        const stored = await window.storage.get("doscroll-data");
-        if (stored && stored.value) {
-          const data = JSON.parse(stored.value);
-          if (data.posts && data.posts.length > 0) setPosts(shuffleArray(data.posts));
-          else setPosts(shuffleArray(SAMPLE_POSTS));
-          if (data.categories) setCategories(data.categories);
-        } else {
-          setPosts(shuffleArray(SAMPLE_POSTS));
-        }
-      } catch {
-        setPosts(shuffleArray(SAMPLE_POSTS));
-      }
+      const [postsRes, catsRes] = await Promise.all([
+        supabase.from("posts").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false }),
+        supabase.from("user_categories").select("categories").eq("user_id", session.user.id).maybeSingle(),
+      ]);
+      if (postsRes.data?.length > 0) setPosts(shuffleArray(postsRes.data.map(fromRow)));
+      else setPosts(shuffleArray(SAMPLE_POSTS));
+      if (catsRes.data?.categories?.length) setCategories(catsRes.data.categories);
       setLoaded(true);
     };
     load();
-  }, []);
-
-  // Save to storage whenever posts or categories change
-  useEffect(() => {
-    if (!loaded) return;
-    const save = async () => {
-      try {
-        await window.storage.set("doscroll-data", JSON.stringify({ posts, categories }));
-      } catch (err) { console.error("Save failed:", err); }
-    };
-    save();
-  }, [posts, categories, loaded]);
+  }, [session]);
 
   const isPulling = useRef(false);
 
@@ -613,29 +681,59 @@ export default function DoScrollApp() {
     setProcessing(true);
     try {
       const newPost = await processLink(linkInput.trim(), noteInput.trim(), categoryInput || null, categories);
-      setPosts(prev => [newPost, ...prev]);
+      const row = { ...toRow(newPost), user_id: session.user.id };
+      const { data } = await supabase.from("posts").insert(row).select().single();
+      setPosts(prev => [fromRow(data), ...prev]);
       setLinkInput(""); setNoteInput(""); setCategoryInput("");
       setTab("feed");
     } catch (err) { console.error(err); }
     setProcessing(false);
   };
 
-  const toggleStar = (id) => setPosts(prev => prev.map(p => p.id === id ? { ...p, starred: !p.starred } : p));
-  const hidePost = (id) => setPosts(prev => prev.map(p => p.id === id ? { ...p, hidden: true, hiddenUntil: Date.now() + 7 * 86400000 } : p));
-  const removePost = (id) => setPosts(prev => prev.filter(p => p.id !== id));
-  const archivePost = (id) => setPosts(prev => prev.map(p => p.id === id ? { ...p, archived: true } : p));
-  const restorePost = (id) => setPosts(prev => prev.map(p => p.id === id ? { ...p, archived: false } : p));
-  const addComment = (id, text) => setPosts(prev => prev.map(p => p.id === id ? { ...p, comments: [...p.comments, text] } : p));
+  const toggleStar = async (id) => {
+    const post = posts.find(p => p.id === id);
+    const starred = !post.starred;
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, starred } : p));
+    await supabase.from("posts").update({ starred }).eq("id", id);
+  };
 
-  const renameCategory = (index, newName) => {
+  const hidePost = async (id) => {
+    const hidden_until = Date.now() + 7 * 86400000;
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, hidden: true, hiddenUntil: hidden_until } : p));
+    await supabase.from("posts").update({ hidden: true, hidden_until }).eq("id", id);
+  };
+
+  const removePost = async (id) => {
+    setPosts(prev => prev.filter(p => p.id !== id));
+    await supabase.from("posts").delete().eq("id", id);
+  };
+
+  const archivePost = async (id) => {
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, archived: true } : p));
+    await supabase.from("posts").update({ archived: true }).eq("id", id);
+  };
+
+  const restorePost = async (id) => {
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, archived: false } : p));
+    await supabase.from("posts").update({ archived: false }).eq("id", id);
+  };
+
+  const addComment = async (id, text) => {
+    const post = posts.find(p => p.id === id);
+    const comments = [...post.comments, text];
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, comments } : p));
+    await supabase.from("posts").update({ comments }).eq("id", id);
+  };
+
+  const renameCategory = async (index, newName) => {
     setCategories(prev => {
       const updated = [...prev];
       const oldName = updated[index];
       updated[index] = newName;
-      // Update all posts that had the old category
       setPosts(pp => pp.map(p => p.category === oldName ? { ...p, category: newName } : p));
-      // Update active filter if it matched
       if (filterCat === oldName) setFilterCat(newName);
+      supabase.from("user_categories").upsert({ user_id: session.user.id, categories: updated });
+      supabase.from("posts").update({ category: newName }).eq("user_id", session.user.id).eq("category", oldName);
       return updated;
     });
   };
@@ -659,6 +757,23 @@ export default function DoScrollApp() {
 
   // Merge settings categories with any categories found on posts (handles AI-assigned or custom ones)
   const allCategories = [...new Set([...categories, ...posts.map(p => p.category)])].filter(Boolean);
+
+  if (authLoading) {
+    return (
+      <div style={{
+        width: "100%", maxWidth: 480, margin: "0 auto", height: "100vh",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        background: "#f0f2f5", fontFamily: "'DM Sans', system-ui, sans-serif",
+      }}>
+        <div style={{ fontSize: "28px", fontWeight: 700, marginBottom: "12px", color: "#1a1a2e" }}>
+          do<span style={{ color: "#6366f1" }}>Scroll</span>
+        </div>
+        <div style={{ fontSize: "13px", color: "#8e8ea0" }}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (!session) return <AuthScreen />;
 
   if (!loaded) {
     return (
@@ -1049,8 +1164,9 @@ export default function DoScrollApp() {
                 Your feed is saved automatically and persists between sessions.
               </p>
               <button onClick={async () => {
-                if (confirm("This will delete all posts and reset everything. Are you sure?")) {
-                  try { await window.storage.delete("doscroll-data"); } catch {}
+                if (confirm("This will delete all your posts and reset categories. Are you sure?")) {
+                  await supabase.from("posts").delete().eq("user_id", session.user.id);
+                  await supabase.from("user_categories").delete().eq("user_id", session.user.id);
                   setPosts(shuffleArray(SAMPLE_POSTS));
                   setCategories(DEFAULT_CATEGORIES);
                 }
@@ -1065,6 +1181,27 @@ export default function DoScrollApp() {
                 onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
               >
                 Clear all data & reset
+              </button>
+            </div>
+
+            <div style={{ marginTop: "32px", paddingTop: "20px", borderTop: "1px solid var(--border)" }}>
+              <p style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
+                Account
+              </p>
+              <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "12px", lineHeight: 1.5 }}>
+                Signed in as <strong>{session.user.email}</strong>
+              </p>
+              <button onClick={() => supabase.auth.signOut()}
+                style={{
+                  padding: "10px 16px", borderRadius: "10px",
+                  border: "1px solid var(--border)", background: "none",
+                  color: "var(--text-secondary)", fontSize: "13px", fontWeight: 500,
+                  cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s ease",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+              >
+                Sign Out
               </button>
             </div>
           </div>
