@@ -10,7 +10,14 @@ export default async function handler(req, res) {
     ? `Pick the single best category from this exact list: ${JSON.stringify(categoriesList)}. Return it exactly as written.`
     : `The user already chose the category "${userCategory}". Return that exact string as the category.`;
 
-  const fetchedUrl = url.startsWith("http") ? url : `https://${url}`;
+  const rawUrl = url.startsWith("http") ? url : `https://${url}`;
+
+  // Resolve redirects (e.g. share.google links)
+  let fetchedUrl = rawUrl;
+  try {
+    const r = await fetch(rawUrl, { method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(5000) });
+    if (r.url && r.url !== rawUrl) fetchedUrl = r.url;
+  } catch { /* keep original */ }
 
   const ytMatch = fetchedUrl.match(
     /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/

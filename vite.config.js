@@ -17,7 +17,14 @@ export default defineConfig(({ mode }) => {
           try {
             const { url, note, userCategory, categoriesList } = JSON.parse(Buffer.concat(chunks).toString());
 
-            const fetchedUrl = url.startsWith("http") ? url : `https://${url}`;
+            const rawUrl = url.startsWith("http") ? url : `https://${url}`;
+
+            // Resolve redirects (e.g. share.google links)
+            let fetchedUrl = rawUrl;
+            try {
+              const r = await fetch(rawUrl, { method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(5000) });
+              if (r.url && r.url !== rawUrl) fetchedUrl = r.url;
+            } catch { /* keep original */ }
 
             // Extract YouTube video ID if present
             const ytMatch = fetchedUrl.match(
