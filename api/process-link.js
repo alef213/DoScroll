@@ -15,7 +15,10 @@ export default async function handler(req, res) {
   // Resolve redirects (e.g. share.google links)
   let fetchedUrl = rawUrl;
   try {
-    const r = await fetch(rawUrl, { method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(5000) });
+    const r = await fetch(rawUrl, {
+      method: "GET", redirect: "follow", signal: AbortSignal.timeout(5000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
+    });
     if (r.url && r.url !== rawUrl) fetchedUrl = r.url;
   } catch { /* keep original */ }
 
