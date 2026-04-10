@@ -19,30 +19,40 @@ export default defineConfig(({ mode }) => {
 
             const fetchedUrl = url.startsWith("http") ? url : `https://${url}`;
 
+            // Extract YouTube video ID if present
+            const ytMatch = fetchedUrl.match(
+              /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
+            );
+            const ytVideoId = ytMatch ? ytMatch[1] : null;
+
             const needsCategory = !userCategory;
             const categoryInstruction = needsCategory
               ? `Pick the single best category from this exact list: ${JSON.stringify(categoriesList)}. Return it exactly as written.`
               : `The user already chose the category "${userCategory}". Return that exact string as the category.`;
 
-            const ogImagePromise = fetch(fetchedUrl, {
-              headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
-              signal: AbortSignal.timeout(5000),
-              redirect: "follow",
-            }).then(r => r.text()).then(html => {
-              const m =
-                html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-                html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
-                html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
-                html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
-              return m ? m[1] : null;
-            }).catch(() => null);
+            const ogImagePromise = ytVideoId
+              ? Promise.resolve(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`)
+              : fetch(fetchedUrl, {
+                  headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
+                  signal: AbortSignal.timeout(5000),
+                  redirect: "follow",
+                }).then(r => r.text()).then(html => {
+                  const m =
+                    html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+                    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
+                    html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+                    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+                  return m ? m[1] : null;
+                }).catch(() => null);
 
-            const microlinkPromise = fetch(
-              `https://api.microlink.io?url=${encodeURIComponent(fetchedUrl)}&screenshot=true`,
-              { signal: AbortSignal.timeout(10000) }
-            ).then(r => r.json())
-              .then(d => d?.data?.screenshot?.url || d?.data?.image?.url || null)
-              .catch(() => null);
+            const microlinkPromise = ytVideoId
+              ? Promise.resolve(null)
+              : fetch(
+                  `https://api.microlink.io?url=${encodeURIComponent(fetchedUrl)}&screenshot=true`,
+                  { signal: AbortSignal.timeout(10000) }
+                ).then(r => r.json())
+                  .then(d => d?.data?.screenshot?.url || d?.data?.image?.url || null)
+                  .catch(() => null);
 
             const anthropicPromise = fetch("https://api.anthropic.com/v1/messages", {
               method: "POST",

@@ -12,7 +12,14 @@ export default async function handler(req, res) {
 
   const fetchedUrl = url.startsWith("http") ? url : `https://${url}`;
 
-  const ogImagePromise = fetch(fetchedUrl, {
+  const ytMatch = fetchedUrl.match(
+    /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
+  );
+  const ytVideoId = ytMatch ? ytMatch[1] : null;
+
+  const ogImagePromise = ytVideoId
+    ? Promise.resolve(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`)
+    : fetch(fetchedUrl, {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
     signal: AbortSignal.timeout(5000),
     redirect: "follow",
@@ -25,12 +32,14 @@ export default async function handler(req, res) {
     return m ? m[1] : null;
   }).catch(() => null);
 
-  const microlinkPromise = fetch(
-    `https://api.microlink.io?url=${encodeURIComponent(fetchedUrl)}&screenshot=true`,
-    { signal: AbortSignal.timeout(10000) }
-  ).then(r => r.json())
-    .then(d => d?.data?.screenshot?.url || d?.data?.image?.url || null)
-    .catch(() => null);
+  const microlinkPromise = ytVideoId
+    ? Promise.resolve(null)
+    : fetch(
+        `https://api.microlink.io?url=${encodeURIComponent(fetchedUrl)}&screenshot=true`,
+        { signal: AbortSignal.timeout(10000) }
+      ).then(r => r.json())
+        .then(d => d?.data?.screenshot?.url || d?.data?.image?.url || null)
+        .catch(() => null);
 
   const anthropicPromise = fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
