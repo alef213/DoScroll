@@ -145,7 +145,6 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
   const handleSwipeEnd = () => {
     const threshold = 220;
     if (swipeX < -threshold) {
-      // Swipe left → delete
       setDismissed("left");
       setTimeout(() => onRemove(post.id), 350);
     } else {
@@ -163,7 +162,6 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
   // Compute visual state
   const swipeProgress = Math.min(Math.abs(swipeX) / 220, 1);
   const isSwipingLeft = swipeX < -10;
-  const isSwipingRight = swipeX > 10;
 
   if (dismissed === "left" || dismissed === "right") {
     return (
@@ -216,25 +214,16 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
 
   return (
     <div ref={cardRef} style={{ position: "relative", overflow: "visible" }}>
-      {/* Swipe background indicators */}
-      {swipeX !== 0 && (
+      {/* Swipe left indicator */}
+      {isSwipingLeft && (
         <div style={{
           position: "absolute", inset: 0, borderRadius: "16px",
-          background: isSwipingLeft
-            ? `rgba(239, 68, 68, ${swipeProgress * 0.9})`
-            : `rgba(99, 102, 241, ${swipeProgress * 0.9})`,
-          display: "flex", alignItems: "center",
-          justifyContent: isSwipingLeft ? "flex-end" : "flex-start",
-          padding: "0 24px",
-          transition: "background 0.1s ease",
+          background: `rgba(239, 68, 68, ${swipeProgress * 0.9})`,
+          display: "flex", alignItems: "center", justifyContent: "flex-end",
+          padding: "0 24px", transition: "background 0.1s ease",
         }}>
-          <div style={{
-            color: "#fff", fontWeight: 700, fontSize: "14px",
-            opacity: swipeProgress,
-            display: "flex", alignItems: "center", gap: "8px",
-          }}>
-            <><span style={{ fontSize: "20px" }}>🗑</span> Delete</>
-
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", opacity: swipeProgress, display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "20px" }}>🗑</span> Delete
           </div>
         </div>
       )}
