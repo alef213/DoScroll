@@ -104,13 +104,14 @@ const timeAgo = (ts) => {
 };
 
 // ─── Post Card ──────────────────────────────────────────────
-function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, onEdit, isArchiveView }) {
+function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, onEdit, isArchiveView, categories }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [showComments, setShowComments] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editSummary, setEditSummary] = useState("");
+  const [editCategory, setEditCategory] = useState("");
   const [swipeX, setSwipeX] = useState(0);
   const [dismissed, setDismissed] = useState(null); // "left" | "right" | "done" | null
   const menuRef = useRef(null);
@@ -279,7 +280,7 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
             }}>
               {isArchiveView ? (
                 <>
-                  <button onClick={() => { setEditTitle(post.title); setEditSummary(post.summary); setEditOpen(true); setMenuOpen(false); }} style={menuItemStyle}>
+                  <button onClick={() => { setEditTitle(post.title); setEditSummary(post.summary); setEditCategory(post.category); setEditOpen(true); setMenuOpen(false); }} style={menuItemStyle}>
                     ✏️ Edit post
                   </button>
                   <button onClick={async () => {
@@ -297,7 +298,7 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
                 </>
               ) : (
                 <>
-                  <button onClick={() => { setEditTitle(post.title); setEditSummary(post.summary); setEditOpen(true); setMenuOpen(false); }} style={menuItemStyle}>
+                  <button onClick={() => { setEditTitle(post.title); setEditSummary(post.summary); setEditCategory(post.category); setEditOpen(true); setMenuOpen(false); }} style={menuItemStyle}>
                     ✏️ Edit post
                   </button>
                   <button onClick={async () => {
@@ -363,9 +364,18 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
                 fontFamily: "inherit", resize: "vertical", lineHeight: 1.6,
               }}
             />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+              {categories.map(c => (
+                <button key={c} onClick={() => setEditCategory(c)} style={{
+                  ...chipStyle, padding: "6px 12px", fontSize: "12px",
+                  background: editCategory === c ? "var(--accent)" : "var(--input-bg)",
+                  color: editCategory === c ? "#fff" : "var(--text-secondary)",
+                }}>{c}</button>
+              ))}
+            </div>
             <div style={{ display: "flex", gap: "8px", marginTop: "10px", marginBottom: "6px" }}>
               <button
-                onClick={() => { onEdit(post.id, editTitle.trim(), editSummary.trim()); setEditOpen(false); }}
+                onClick={() => { onEdit(post.id, editTitle.trim(), editSummary.trim(), editCategory); setEditOpen(false); }}
                 style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "var(--accent)", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
               >Save</button>
               <button
@@ -443,7 +453,7 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
 }
 
 // ─── Search Overlay ─────────────────────────────────────────
-function SearchOverlay({ posts, onClose, onStar, onRemove, onArchive, onRestore, onAddComment, onEdit }) {
+function SearchOverlay({ posts, onClose, onStar, onRemove, onArchive, onRestore, onAddComment, onEdit, categories }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -508,7 +518,7 @@ function SearchOverlay({ posts, onClose, onStar, onRemove, onArchive, onRestore,
             {results.map(post => (
               <PostCard key={post.id} post={post} isArchiveView={post.archived}
                 onStar={onStar} onRemove={onRemove}
-                onArchive={onArchive} onRestore={onRestore} onAddComment={onAddComment} onEdit={onEdit} />
+                onArchive={onArchive} onRestore={onRestore} onAddComment={onAddComment} onEdit={onEdit} categories={categories} />
             ))}
           </div>
         )}
@@ -743,9 +753,9 @@ export default function DoScrollApp() {
     await supabase.from("posts").update({ archived: false }).eq("id", id);
   };
 
-  const editPost = async (id, title, summary) => {
-    setPosts(prev => prev.map(p => p.id === id ? { ...p, title, summary } : p));
-    await supabase.from("posts").update({ title, summary }).eq("id", id);
+  const editPost = async (id, title, summary, category) => {
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, title, summary, category } : p));
+    await supabase.from("posts").update({ title, summary, category }).eq("id", id);
   };
 
   const addComment = async (id, text) => {
@@ -992,7 +1002,7 @@ export default function DoScrollApp() {
                   post={post}
                   isArchiveView={tab === "archive"}
                   onStar={toggleStar} onRemove={removePost}
-                  onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost}
+                  onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost} categories={allCategories}
                 />
               </div>
             ))
@@ -1269,7 +1279,8 @@ export default function DoScrollApp() {
           posts={posts}
           onClose={() => setSearchOpen(false)}
           onStar={toggleStar} onRemove={removePost}
-          onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost}
+          onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost} categories={allCategories}
+
         />
       )}
     </div>
