@@ -45,6 +45,11 @@ export default defineConfig(({ mode }) => {
                   return m ? m[1] : null;
                 }).catch(() => null);
 
+            const ytOembedPromise = ytVideoId
+              ? fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`, { signal: AbortSignal.timeout(5000) })
+                  .then(r => r.json()).catch(() => null)
+              : Promise.resolve(null);
+
             const microlinkPromise = ytVideoId
               ? Promise.resolve(null)
               : fetch(
@@ -73,9 +78,10 @@ export default defineConfig(({ mode }) => {
               }),
             });
 
-            const [apiRes, ogImage, mlImage] = await Promise.all([anthropicPromise, ogImagePromise, microlinkPromise]);
+            const [apiRes, ogImage, mlImage, ytOembed] = await Promise.all([anthropicPromise, ogImagePromise, microlinkPromise, ytOembedPromise]);
             const data = await apiRes.json();
             data.ogImage = ogImage || mlImage;
+            data.ytFallback = ytOembed ? { title: ytOembed.title, author: ytOembed.author_name } : null;
             res.writeHead(apiRes.status, { "Content-Type": "application/json" });
             res.end(JSON.stringify(data));
           } catch (err) {
