@@ -103,7 +103,7 @@ const timeAgo = (ts) => {
 };
 
 // ─── Post Card ──────────────────────────────────────────────
-function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddComment, onEdit, isArchiveView }) {
+function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, onEdit, isArchiveView }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [showComments, setShowComments] = useState(false);
@@ -143,15 +143,11 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
     }
   };
   const handleSwipeEnd = () => {
-    const threshold = 120;
+    const threshold = 220;
     if (swipeX < -threshold) {
       // Swipe left → delete
       setDismissed("left");
       setTimeout(() => onRemove(post.id), 350);
-    } else if (swipeX > threshold) {
-      // Swipe right → hide for a week
-      setDismissed("right");
-      setTimeout(() => onHide(post.id), 350);
     } else {
       setSwipeX(0);
     }
@@ -165,7 +161,7 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
   };
 
   // Compute visual state
-  const swipeProgress = Math.min(Math.abs(swipeX) / 120, 1);
+  const swipeProgress = Math.min(Math.abs(swipeX) / 220, 1);
   const isSwipingLeft = swipeX < -10;
   const isSwipingRight = swipeX > 10;
 
@@ -237,11 +233,8 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
             opacity: swipeProgress,
             display: "flex", alignItems: "center", gap: "8px",
           }}>
-            {isSwipingLeft ? (
-              <><span style={{ fontSize: "20px" }}>🗑</span> Delete</>
-            ) : (
-              <><span style={{ fontSize: "20px" }}>🕐</span> Hide 1 week</>
-            )}
+            <><span style={{ fontSize: "20px" }}>🗑</span> Delete</>
+
           </div>
         </div>
       )}
@@ -325,9 +318,6 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
                   </button>
                   <button onClick={() => { handleDone(); setMenuOpen(false); }} style={menuItemStyle}>
                     📦 Archive (mark done)
-                  </button>
-                  <button onClick={() => { onHide(post.id); setMenuOpen(false); }} style={menuItemStyle}>
-                    🕐 Hide for a week
                   </button>
                   <button onClick={() => { onRemove(post.id); setMenuOpen(false); }} style={{ ...menuItemStyle, color: "#ef4444" }}>
                     🗑 Remove post
@@ -463,7 +453,7 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
 }
 
 // ─── Search Overlay ─────────────────────────────────────────
-function SearchOverlay({ posts, onClose, onStar, onHide, onRemove, onArchive, onRestore, onAddComment, onEdit }) {
+function SearchOverlay({ posts, onClose, onStar, onRemove, onArchive, onRestore, onAddComment, onEdit }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -527,7 +517,7 @@ function SearchOverlay({ posts, onClose, onStar, onHide, onRemove, onArchive, on
             </div>
             {results.map(post => (
               <PostCard key={post.id} post={post} isArchiveView={post.archived}
-                onStar={onStar} onHide={onHide} onRemove={onRemove}
+                onStar={onStar} onRemove={onRemove}
                 onArchive={onArchive} onRestore={onRestore} onAddComment={onAddComment} onEdit={onEdit} />
             ))}
           </div>
@@ -747,11 +737,6 @@ export default function DoScrollApp() {
     await supabase.from("posts").update({ starred }).eq("id", id);
   };
 
-  const hidePost = async (id) => {
-    const hidden_until = Date.now() + 7 * 86400000;
-    setPosts(prev => prev.map(p => p.id === id ? { ...p, hidden: true, hiddenUntil: hidden_until } : p));
-    await supabase.from("posts").update({ hidden: true, hidden_until }).eq("id", id);
-  };
 
   const removePost = async (id) => {
     setPosts(prev => prev.filter(p => p.id !== id));
@@ -795,7 +780,6 @@ export default function DoScrollApp() {
 
   const feedPosts = posts
     .filter(p => !p.archived)
-    .filter(p => !p.hidden || (p.hiddenUntil && Date.now() > p.hiddenUntil))
     .filter(p => !filterCat || p.category === filterCat)
     .sort((a, b) => {
       if (a.starred && !b.starred) return -1;
@@ -1017,7 +1001,7 @@ export default function DoScrollApp() {
                 <PostCard
                   post={post}
                   isArchiveView={tab === "archive"}
-                  onStar={toggleStar} onHide={hidePost} onRemove={removePost}
+                  onStar={toggleStar} onRemove={removePost}
                   onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost}
                 />
               </div>
@@ -1294,7 +1278,7 @@ export default function DoScrollApp() {
         <SearchOverlay
           posts={posts}
           onClose={() => setSearchOpen(false)}
-          onStar={toggleStar} onHide={hidePost} onRemove={removePost}
+          onStar={toggleStar} onRemove={removePost}
           onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost}
         />
       )}
