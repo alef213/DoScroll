@@ -17,25 +17,30 @@ export default async function handler(req, res) {
   );
   const ytVideoId = ytMatch ? ytMatch[1] : null;
 
+  // For YouTube: fetch oEmbed first so we can pass the title to the AI
+  const ytOembed = ytVideoId
+    ? await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`, { signal: AbortSignal.timeout(5000) })
+        .then(r => r.json()).catch(() => null)
+    : null;
+
+  const ytContext = ytOembed
+    ? `\nVideo title: "${ytOembed.title}" by ${ytOembed.author_name}`
+    : "";
+
   const ogImagePromise = ytVideoId
     ? Promise.resolve(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`)
     : fetch(fetchedUrl, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
-    signal: AbortSignal.timeout(5000),
-    redirect: "follow",
-  }).then(r => r.text()).then(html => {
-    const m =
-      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
-      html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
-      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
-    return m ? m[1] : null;
-  }).catch(() => null);
-
-  const ytOembedPromise = ytVideoId
-    ? fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`, { signal: AbortSignal.timeout(5000) })
-        .then(r => r.json()).catch(() => null)
-    : Promise.resolve(null);
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
+        signal: AbortSignal.timeout(5000),
+        redirect: "follow",
+      }).then(r => r.text()).then(html => {
+        const m =
+          html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+          html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
+          html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+          html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+        return m ? m[1] : null;
+      }).catch(() => null);
 
   const microlinkPromise = ytVideoId
     ? Promise.resolve(null)
@@ -60,13 +65,13 @@ export default async function handler(req, res) {
       tools: [{ type: "web_search_20250305", name: "web_search" }],
       messages: [{
         role: "user",
-        content: `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${url}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
+        content: `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${url}${ytContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
       }],
     }),
   });
 
   try {
-    const [apiRes, ogImage, mlImage, ytOembed] = await Promise.all([anthropicPromise, ogImagePromise, microlinkPromise, ytOembedPromise]);
+    const [apiRes, ogImage, mlImage] = await Promise.all([anthropicPromise, ogImagePromise, microlinkPromise]);
     const data = await apiRes.json();
     data.ogImage = ogImage || mlImage;
     data.ytFallback = ytOembed ? { title: ytOembed.title, author: ytOembed.author_name } : null;

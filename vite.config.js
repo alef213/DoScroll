@@ -30,6 +30,16 @@ export default defineConfig(({ mode }) => {
               ? `Pick the single best category from this exact list: ${JSON.stringify(categoriesList)}. Return it exactly as written.`
               : `The user already chose the category "${userCategory}". Return that exact string as the category.`;
 
+            // For YouTube: fetch oEmbed first so we can pass the title to the AI
+            const ytOembed = ytVideoId
+              ? await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`, { signal: AbortSignal.timeout(5000) })
+                  .then(r => r.json()).catch(() => null)
+              : null;
+
+            const ytContext = ytOembed
+              ? `\nVideo title: "${ytOembed.title}" by ${ytOembed.author_name}`
+              : "";
+
             const ogImagePromise = ytVideoId
               ? Promise.resolve(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`)
               : fetch(fetchedUrl, {
@@ -44,11 +54,6 @@ export default defineConfig(({ mode }) => {
                     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
                   return m ? m[1] : null;
                 }).catch(() => null);
-
-            const ytOembedPromise = ytVideoId
-              ? fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`, { signal: AbortSignal.timeout(5000) })
-                  .then(r => r.json()).catch(() => null)
-              : Promise.resolve(null);
 
             const microlinkPromise = ytVideoId
               ? Promise.resolve(null)
@@ -73,15 +78,16 @@ export default defineConfig(({ mode }) => {
                 tools: [{ type: "web_search_20250305", name: "web_search" }],
                 messages: [{
                   role: "user",
-                  content: `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${url}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars).\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
+                  content: `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${url}${ytContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars).\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
                 }],
               }),
             });
 
-            const [apiRes, ogImage, mlImage, ytOembed] = await Promise.all([anthropicPromise, ogImagePromise, microlinkPromise, ytOembedPromise]);
+            const [apiRes, ogImage, mlImage] = await Promise.all([anthropicPromise, ogImagePromise, microlinkPromise]);
             const data = await apiRes.json();
             data.ogImage = ogImage || mlImage;
             data.ytFallback = ytOembed ? { title: ytOembed.title, author: ytOembed.author_name } : null;
+
             res.writeHead(apiRes.status, { "Content-Type": "application/json" });
             res.end(JSON.stringify(data));
           } catch (err) {
