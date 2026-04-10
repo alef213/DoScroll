@@ -139,7 +139,7 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
     }
     if (isSwiping.current) {
       e.preventDefault();
-      setSwipeX(dx);
+      setSwipeX(Math.min(dx, 0));
     }
   };
   const handleSwipeEnd = () => {
