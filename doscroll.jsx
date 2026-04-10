@@ -52,7 +52,7 @@ const processLink = async (url, note, userCategory, categoriesList) => {
       url,
       title: (parsed.title || domainKey).slice(0, 80),
       summary: (parsed.summary || "").slice(0, 300),
-      photo: GRADIENT_PHOTOS[Math.floor(Math.random() * GRADIENT_PHOTOS.length)],
+      photo: data.ogImage || GRADIENT_PHOTOS[Math.floor(Math.random() * GRADIENT_PHOTOS.length)],
       category: parsed.category || userCategory || categoriesList[0] || "🌐 Explore",
       note: note || null,
       starred: false, hidden: false, hiddenUntil: null, archived: false,
@@ -103,10 +103,13 @@ const timeAgo = (ts) => {
 };
 
 // ─── Post Card ──────────────────────────────────────────────
-function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddComment, isArchiveView }) {
+function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddComment, onEdit, isArchiveView }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [showComments, setShowComments] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editSummary, setEditSummary] = useState("");
   const [swipeX, setSwipeX] = useState(0);
   const [dismissed, setDismissed] = useState(null); // "left" | "right" | "done" | null
   const menuRef = useRef(null);
@@ -293,6 +296,9 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
             }}>
               {isArchiveView ? (
                 <>
+                  <button onClick={() => { setEditTitle(post.title); setEditSummary(post.summary); setEditOpen(true); setMenuOpen(false); }} style={menuItemStyle}>
+                    ✏️ Edit post
+                  </button>
                   <button onClick={async () => {
                     try { await navigator.share({ title: post.title, text: post.summary, url: post.url }); } catch {}
                     setMenuOpen(false);
@@ -308,6 +314,9 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
                 </>
               ) : (
                 <>
+                  <button onClick={() => { setEditTitle(post.title); setEditSummary(post.summary); setEditOpen(true); setMenuOpen(false); }} style={menuItemStyle}>
+                    ✏️ Edit post
+                  </button>
                   <button onClick={async () => {
                     try { await navigator.share({ title: post.title, text: post.summary, url: post.url }); } catch {}
                     setMenuOpen(false);
@@ -332,7 +341,10 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
 
       {/* Photo */}
       <div style={{
-        height: 200, background: post.photo,
+        height: 200,
+        background: post.photo?.startsWith("http") ? "#111" : post.photo,
+        backgroundImage: post.photo?.startsWith("http") ? `url(${post.photo})` : undefined,
+        backgroundSize: "cover", backgroundPosition: "center",
         display: "flex", alignItems: "flex-end", padding: "16px",
         cursor: "pointer", position: "relative",
       }}
@@ -348,17 +360,55 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
 
       {/* Content */}
       <div style={{ padding: "14px 16px 4px" }}>
-        <h3 style={{
-          fontSize: "16px", fontWeight: 700, lineHeight: 1.35,
-          color: "var(--text-primary)", margin: "0 0 6px", fontFamily: "'DM Sans', sans-serif",
-        }}>{post.title}</h3>
-        <p style={{ fontSize: "14px", lineHeight: 1.55, color: "var(--text-secondary)", margin: 0 }}>{post.summary}</p>
-        {post.note && (
-          <div style={{
-            marginTop: "10px", padding: "10px 12px", background: "var(--note-bg)",
-            borderRadius: "10px", fontSize: "13px", color: "var(--text-secondary)",
-            borderLeft: "3px solid var(--accent)", lineHeight: 1.5,
-          }}>📌 {post.note}</div>
+        {editOpen ? (
+          <>
+            <input
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              style={{
+                width: "100%", padding: "10px 12px", borderRadius: "10px",
+                border: "1px solid var(--accent)", background: "var(--input-bg)",
+                fontSize: "15px", fontWeight: 700, color: "var(--text-primary)",
+                outline: "none", fontFamily: "inherit", marginBottom: "10px",
+              }}
+            />
+            <textarea
+              value={editSummary}
+              onChange={e => setEditSummary(e.target.value)}
+              rows={4}
+              style={{
+                width: "100%", padding: "10px 12px", borderRadius: "10px",
+                border: "1px solid var(--border)", background: "var(--input-bg)",
+                fontSize: "13px", color: "var(--text-secondary)", outline: "none",
+                fontFamily: "inherit", resize: "vertical", lineHeight: 1.6,
+              }}
+            />
+            <div style={{ display: "flex", gap: "8px", marginTop: "10px", marginBottom: "6px" }}>
+              <button
+                onClick={() => { onEdit(post.id, editTitle.trim(), editSummary.trim()); setEditOpen(false); }}
+                style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "var(--accent)", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+              >Save</button>
+              <button
+                onClick={() => setEditOpen(false)}
+                style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid var(--border)", background: "none", color: "var(--text-secondary)", fontSize: "13px", cursor: "pointer", fontFamily: "inherit" }}
+              >Cancel</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 style={{
+              fontSize: "16px", fontWeight: 700, lineHeight: 1.35,
+              color: "var(--text-primary)", margin: "0 0 6px", fontFamily: "'DM Sans', sans-serif",
+            }}>{post.title}</h3>
+            <p style={{ fontSize: "14px", lineHeight: 1.55, color: "var(--text-secondary)", margin: 0 }}>{post.summary}</p>
+            {post.note && (
+              <div style={{
+                marginTop: "10px", padding: "10px 12px", background: "var(--note-bg)",
+                borderRadius: "10px", fontSize: "13px", color: "var(--text-secondary)",
+                borderLeft: "3px solid var(--accent)", lineHeight: 1.5,
+              }}>📌 {post.note}</div>
+            )}
+          </>
         )}
       </div>
 
@@ -413,7 +463,7 @@ function PostCard({ post, onStar, onHide, onRemove, onArchive, onRestore, onAddC
 }
 
 // ─── Search Overlay ─────────────────────────────────────────
-function SearchOverlay({ posts, onClose, onStar, onHide, onRemove, onArchive, onRestore, onAddComment }) {
+function SearchOverlay({ posts, onClose, onStar, onHide, onRemove, onArchive, onRestore, onAddComment, onEdit }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -478,7 +528,7 @@ function SearchOverlay({ posts, onClose, onStar, onHide, onRemove, onArchive, on
             {results.map(post => (
               <PostCard key={post.id} post={post} isArchiveView={post.archived}
                 onStar={onStar} onHide={onHide} onRemove={onRemove}
-                onArchive={onArchive} onRestore={onRestore} onAddComment={onAddComment} />
+                onArchive={onArchive} onRestore={onRestore} onAddComment={onAddComment} onEdit={onEdit} />
             ))}
           </div>
         )}
@@ -716,6 +766,11 @@ export default function DoScrollApp() {
   const restorePost = async (id) => {
     setPosts(prev => prev.map(p => p.id === id ? { ...p, archived: false } : p));
     await supabase.from("posts").update({ archived: false }).eq("id", id);
+  };
+
+  const editPost = async (id, title, summary) => {
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, title, summary } : p));
+    await supabase.from("posts").update({ title, summary }).eq("id", id);
   };
 
   const addComment = async (id, text) => {
@@ -963,7 +1018,7 @@ export default function DoScrollApp() {
                   post={post}
                   isArchiveView={tab === "archive"}
                   onStar={toggleStar} onHide={hidePost} onRemove={removePost}
-                  onArchive={archivePost} onRestore={restorePost} onAddComment={addComment}
+                  onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost}
                 />
               </div>
             ))
@@ -1240,7 +1295,7 @@ export default function DoScrollApp() {
           posts={posts}
           onClose={() => setSearchOpen(false)}
           onStar={toggleStar} onHide={hidePost} onRemove={removePost}
-          onArchive={archivePost} onRestore={restorePost} onAddComment={addComment}
+          onArchive={archivePost} onRestore={restorePost} onAddComment={addComment} onEdit={editPost}
         />
       )}
     </div>
