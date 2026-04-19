@@ -3,7 +3,27 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Verify Supabase JWT
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+  const { createClient } = await import("@supabase/supabase-js");
+  const sbClient = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY);
+  const { data: { user } } = await sbClient.auth.getUser(token);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
   const { url, note, userCategory, categoriesList } = req.body;
+
+  // Input validation
+  if (!url || typeof url !== "string" || url.length > 2048) {
+    return res.status(400).json({ error: "Invalid URL" });
+  }
+  if (note !== undefined && note !== null && (typeof note !== "string" || note.length > 500)) {
+    return res.status(400).json({ error: "Note too long" });
+  }
+  if (!Array.isArray(categoriesList) || categoriesList.length > 50 ||
+      categoriesList.some(c => typeof c !== "string" || c.length > 50)) {
+    return res.status(400).json({ error: "Invalid categories" });
+  }
 
   const needsCategory = !userCategory;
   const categoryInstruction = needsCategory

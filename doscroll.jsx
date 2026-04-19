@@ -24,9 +24,13 @@ const processLink = async (url, note, userCategory, categoriesList) => {
   } catch { domainKey = url.slice(0, 30); }
 
   try {
+    const { data: { session } } = await supabase.auth.getSession();
     const response = await fetch("/api/process-link", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session?.access_token}`,
+      },
       body: JSON.stringify({ url, note, userCategory, categoriesList }),
     });
 
@@ -759,6 +763,7 @@ export default function DoScrollApp() {
   };
 
   const addComment = async (id, text) => {
+    if (!text || text.length > 500) return;
     const post = posts.find(p => p.id === id);
     const comments = [...post.comments, text];
     setPosts(prev => prev.map(p => p.id === id ? { ...p, comments } : p));

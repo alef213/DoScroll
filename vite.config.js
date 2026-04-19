@@ -17,6 +17,21 @@ export default defineConfig(({ mode }) => {
           try {
             const { url, note, userCategory, categoriesList } = JSON.parse(Buffer.concat(chunks).toString());
 
+            // Input validation
+            if (!url || typeof url !== "string" || url.length > 2048) {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Invalid URL" })); return;
+            }
+            if (note !== undefined && note !== null && (typeof note !== "string" || note.length > 500)) {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Note too long" })); return;
+            }
+            if (!Array.isArray(categoriesList) || categoriesList.length > 50 ||
+                categoriesList.some(c => typeof c !== "string" || c.length > 50)) {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Invalid categories" })); return;
+            }
+
             const rawUrl = url.startsWith("http") ? url : `https://${url}`;
 
             // Resolve redirects (e.g. share.google links)
