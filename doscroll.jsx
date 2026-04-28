@@ -117,6 +117,7 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
   const [editSummary, setEditSummary] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [swipeX, setSwipeX] = useState(0);
+  const [revealed, setRevealed] = useState(false);
   const [dismissed, setDismissed] = useState(null); // "left" | "right" | "done" | null
   const menuRef = useRef(null);
   const touchStartX = useRef(0);
@@ -131,6 +132,8 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
   }, []);
 
   // Swipe handlers
+  const REVEAL_SNAP = -88;
+
   const handleSwipeStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
@@ -139,24 +142,29 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
   const handleSwipeMove = (e) => {
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = e.touches[0].clientY - touchStartY.current;
-    // Lock into horizontal swipe if moved more horizontally than vertically
     if (!isSwiping.current && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
       isSwiping.current = true;
     }
     if (isSwiping.current) {
       e.preventDefault();
-      setSwipeX(Math.min(dx, 0));
+      const base = revealed ? REVEAL_SNAP : 0;
+      setSwipeX(Math.min(base + dx, 0));
     }
   };
   const handleSwipeEnd = () => {
-    const threshold = 220;
-    if (swipeX < -threshold) {
-      setDismissed("left");
-      setTimeout(() => onRemove(post.id), 350);
+    if (swipeX < -44) {
+      setSwipeX(REVEAL_SNAP);
+      setRevealed(true);
     } else {
       setSwipeX(0);
+      setRevealed(false);
     }
     isSwiping.current = false;
+  };
+
+  const handleDeleteConfirm = () => {
+    setDismissed("left");
+    setTimeout(() => onRemove(post.id), 350);
   };
 
   // "Done" consumed animation
@@ -166,7 +174,7 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
   };
 
   // Compute visual state
-  const swipeProgress = Math.min(Math.abs(swipeX) / 220, 1);
+  const isSnapped = swipeX === 0 || swipeX === REVEAL_SNAP;
   const isSwipingLeft = swipeX < -10;
 
   if (dismissed === "left" || dismissed === "right") {
@@ -220,17 +228,25 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
 
   return (
     <div ref={cardRef} style={{ position: "relative", overflow: "visible" }}>
-      {/* Swipe left indicator */}
+      {/* Swipe left — delete reveal */}
       {isSwipingLeft && (
         <div style={{
           position: "absolute", inset: 0, borderRadius: "16px",
-          background: `rgba(239, 68, 68, ${swipeProgress * 0.9})`,
+          background: "rgba(239, 68, 68, 0.92)",
           display: "flex", alignItems: "center", justifyContent: "flex-end",
-          padding: "0 24px", transition: "background 0.1s ease",
         }}>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", opacity: swipeProgress, display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "20px" }}>🗑</span> Delete
-          </div>
+          <button
+            onClick={handleDeleteConfirm}
+            style={{
+              width: "88px", height: "100%", background: "none", border: "none",
+              cursor: "pointer", display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center", gap: "4px",
+              color: "#fff", flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: "22px" }}>🗑</span>
+            <span style={{ fontWeight: 700, fontSize: "13px" }}>Delete</span>
+          </button>
         </div>
       )}
 
@@ -242,7 +258,7 @@ function PostCard({ post, onStar, onRemove, onArchive, onRestore, onAddComment, 
         style={{
           background: "var(--card-bg)", borderRadius: "16px", overflow: "hidden",
           boxShadow: "0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.04)",
-          transition: swipeX === 0 ? "transform 0.25s ease, box-shadow 0.2s ease" : "box-shadow 0.2s ease",
+          transition: isSnapped ? "transform 0.25s ease, box-shadow 0.2s ease" : "box-shadow 0.2s ease",
           border: "1px solid var(--border)",
           opacity: isArchiveView ? 0.85 : 1,
           transform: `translateX(${swipeX}px) rotate(${swipeX * 0.02}deg)`,
