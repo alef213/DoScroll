@@ -72,8 +72,8 @@ export default async function handler(req, res) {
 
   const ogImagePromise = ytVideoId
     ? Promise.resolve(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`)
-    : wikiData?.thumbnail?.source
-    ? Promise.resolve(wikiData.thumbnail.source)
+    : validWiki?.thumbnail?.source
+    ? Promise.resolve(validWiki.thumbnail.source)
     : fetch(fetchedUrl, {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
         signal: AbortSignal.timeout(5000),
@@ -87,7 +87,7 @@ export default async function handler(req, res) {
         return m ? m[1] : null;
       }).catch(() => null);
 
-  const microlinkPromise = ytVideoId || wikiData
+  const microlinkPromise = ytVideoId || validWiki
     ? Promise.resolve(null)
     : fetch(
         `https://api.microlink.io?url=${encodeURIComponent(fetchedUrl)}&screenshot=true`,
@@ -104,13 +104,10 @@ export default async function handler(req, res) {
     return lastEnd > max * 0.5 ? text.slice(0, lastEnd + 1) : cut.trimEnd() + "…";
   };
 
-  // For Wikipedia: use the extract directly; only ask Claude for category
-  const wikiSummary = wikiData?.extract ? sentenceTrunc(wikiData.extract, 400) : null;
-  const wikiPageTitle = wikiData?.title || null;
-
-  const wikiContext = wikiData?.extract
-    ? `\n\nArticle extract: ${wikiData.extract.slice(0, 600)}`
-    : "";
+  // Only use Wikipedia data if both title and extract are present (guards against error responses)
+  const validWiki = wikiData?.extract && wikiData?.title ? wikiData : null;
+  const wikiSummary = validWiki ? sentenceTrunc(validWiki.extract, 400) : null;
+  const wikiPageTitle = validWiki?.title || null;
 
   const anthropicPromise = fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -118,16 +115,16 @@ export default async function handler(req, res) {
       "Content-Type": "application/json",
       "x-api-key": process.env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
-      ...(wikiData ? {} : { "anthropic-beta": "web-search-2025-03-05" }),
+      ...(validWiki ? {} : { "anthropic-beta": "web-search-2025-03-05" }),
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: wikiData ? 200 : 1000,
-      ...(wikiData ? {} : { tools: [{ type: "web_search_20250305", name: "web_search" }] }),
+      max_tokens: validWiki ? 200 : 1000,
+      ...(validWiki ? {} : { tools: [{ type: "web_search_20250305", name: "web_search" }] }),
       messages: [{
         role: "user",
-        content: wikiData
-          ? `Given this Wikipedia article extract, pick the best category.\n\nTitle: ${wikiPageTitle}\nExtract: ${wikiData.extract.slice(0, 300)}\n\n${categoryInstruction}\n\nRespond with ONLY valid JSON: {"category": "..."}`
+        content: validWiki
+          ? `Given this Wikipedia article extract, pick the best category.\n\nTitle: ${validWiki.title}\nExtract: ${validWiki.extract.slice(0, 300)}\n\n${categoryInstruction}\n\nRespond with ONLY valid JSON: {"category": "..."}`
           : `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${fetchedUrl}${ytContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
       }],
     }),
