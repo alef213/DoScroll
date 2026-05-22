@@ -52,11 +52,18 @@ const processLink = async (url, note, userCategory, categoriesList) => {
     }
 
     const ytFallback = data.ytFallback;
+    const stripCite = s => s.replace(/<cite[^>]*>([\s\S]*?)<\/cite>/gi, "$1").replace(/<cite[^>]*\/>/gi, "").trim();
+    const sentenceTrunc = (s, max) => {
+      if (s.length <= max) return s;
+      const cut = s.slice(0, max);
+      const lastEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+      return lastEnd > max * 0.5 ? s.slice(0, lastEnd + 1) : cut.trimEnd() + "…";
+    };
     return {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       url,
-      title: (parsed.title || ytFallback?.title || domainKey).replace(/<cite[^>]*>([\s\S]*?)<\/cite>/gi, "$1").replace(/<cite[^>]*/>/gi, "").trim().slice(0, 80),
-      summary: (parsed.summary || (ytFallback ? `YouTube video by ${ytFallback.author}` : "")).replace(/<cite[^>]*>([\s\S]*?)<\/cite>/gi, "$1").replace(/<cite[^>]*\/>/gi, "").trim().slice(0, 300),
+      title: (data.wikiTitle || parsed.title || ytFallback?.title || domainKey).replace(/<cite[^>]*>([\s\S]*?)<\/cite>/gi, "$1").replace(/<cite[^>]*\/>/gi, "").trim().slice(0, 80),
+      summary: sentenceTrunc(stripCite(data.wikiSummary || parsed.summary || (ytFallback ? `YouTube video by ${ytFallback.author}` : "")), 400),
       photo: data.ogImage || GRADIENT_PHOTOS[Math.floor(Math.random() * GRADIENT_PHOTOS.length)],
       category: parsed.category || userCategory || categoriesList[0] || "🌐 Explore",
       note: note || null,

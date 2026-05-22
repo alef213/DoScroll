@@ -96,9 +96,20 @@ export default async function handler(req, res) {
         .then(d => d?.data?.screenshot?.url || d?.data?.image?.url || null)
         .catch(() => null);
 
-  // For Wikipedia, call Claude without web search — pass the extract directly
+  // Truncate text at a sentence boundary
+  const sentenceTrunc = (text, max) => {
+    if (!text || text.length <= max) return text || "";
+    const cut = text.slice(0, max);
+    const lastEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+    return lastEnd > max * 0.5 ? text.slice(0, lastEnd + 1) : cut.trimEnd() + "…";
+  };
+
+  // For Wikipedia: use the extract directly; only ask Claude for category
+  const wikiSummary = wikiData?.extract ? sentenceTrunc(wikiData.extract, 400) : null;
+  const wikiPageTitle = wikiData?.title || null;
+
   const wikiContext = wikiData?.extract
-    ? `\n\nArticle extract: ${wikiData.extract.slice(0, 500)}`
+    ? `\n\nArticle extract: ${wikiData.extract.slice(0, 600)}`
     : "";
 
   const anthropicPromise = fetch("https://api.anthropic.com/v1/messages", {
@@ -111,11 +122,13 @@ export default async function handler(req, res) {
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1000,
+      max_tokens: wikiData ? 200 : 1000,
       ...(wikiData ? {} : { tools: [{ type: "web_search_20250305", name: "web_search" }] }),
       messages: [{
         role: "user",
-        content: `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${fetchedUrl}${ytContext}${wikiContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. ${wikiData ? "Use the article extract provided above to understand the content." : "Search the web for this URL to understand what the content is about."}\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
+        content: wikiData
+          ? `Given this Wikipedia article extract, pick the best category.\n\nTitle: ${wikiPageTitle}\nExtract: ${wikiData.extract.slice(0, 300)}\n\n${categoryInstruction}\n\nRespond with ONLY valid JSON: {"category": "..."}`
+          : `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${fetchedUrl}${ytContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
       }],
     }),
   });
@@ -125,6 +138,8 @@ export default async function handler(req, res) {
     const data = await apiRes.json();
     data.ogImage = ogImage || mlImage;
     data.ytFallback = ytOembed ? { title: ytOembed.title, author: ytOembed.author_name } : null;
+    data.wikiTitle = wikiPageTitle;
+    data.wikiSummary = wikiSummary;
     res.status(apiRes.status).json(data);
   } catch (err) {
     console.error("Anthropic API error:", err);
