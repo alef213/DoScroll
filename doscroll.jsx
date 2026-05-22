@@ -55,8 +55,8 @@ const processLink = async (url, note, userCategory, categoriesList) => {
     return {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       url,
-      title: (parsed.title || ytFallback?.title || domainKey).slice(0, 80),
-      summary: (parsed.summary || (ytFallback ? `YouTube video by ${ytFallback.author}` : "")).replace(/<cite[^>]*>.*?<\/cite>/gi, "").replace(/<cite[^>]*\/>/gi, "").trim().slice(0, 300),
+      title: (parsed.title || ytFallback?.title || domainKey).replace(/<cite[^>]*>([\s\S]*?)<\/cite>/gi, "$1").replace(/<cite[^>]*/>/gi, "").trim().slice(0, 80),
+      summary: (parsed.summary || (ytFallback ? `YouTube video by ${ytFallback.author}` : "")).replace(/<cite[^>]*>([\s\S]*?)<\/cite>/gi, "$1").replace(/<cite[^>]*\/>/gi, "").trim().slice(0, 300),
       photo: data.ogImage || GRADIENT_PHOTOS[Math.floor(Math.random() * GRADIENT_PHOTOS.length)],
       category: parsed.category || userCategory || categoriesList[0] || "🌐 Explore",
       note: note || null,

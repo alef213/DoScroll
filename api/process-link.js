@@ -47,10 +47,23 @@ export default async function handler(req, res) {
   );
   const ytVideoId = ytMatch ? ytMatch[1] : null;
 
+  // Detect Wikipedia URLs
+  const wikiMatch = fetchedUrl.match(/^https?:\/\/([a-z]{2,})\.wikipedia\.org\/wiki\/(.+)/);
+  const wikiLang = wikiMatch ? wikiMatch[1] : null;
+  const wikiTitle = wikiMatch ? decodeURIComponent(wikiMatch[2]) : null;
+
   // For YouTube: fetch oEmbed first so we can pass the title to the AI
   const ytOembed = ytVideoId
     ? await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`, { signal: AbortSignal.timeout(5000) })
         .then(r => r.json()).catch(() => null)
+    : null;
+
+  // For Wikipedia: fetch the REST API summary directly
+  const wikiData = wikiTitle
+    ? await fetch(
+        `https://${wikiLang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle)}`,
+        { headers: { "User-Agent": "DoScroll/1.0" }, signal: AbortSignal.timeout(5000) }
+      ).then(r => r.json()).catch(() => null)
     : null;
 
   const ytContext = ytOembed
@@ -59,6 +72,8 @@ export default async function handler(req, res) {
 
   const ogImagePromise = ytVideoId
     ? Promise.resolve(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`)
+    : wikiData?.thumbnail?.source
+    ? Promise.resolve(wikiData.thumbnail.source)
     : fetch(fetchedUrl, {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
         signal: AbortSignal.timeout(5000),
@@ -72,7 +87,7 @@ export default async function handler(req, res) {
         return m ? m[1] : null;
       }).catch(() => null);
 
-  const microlinkPromise = ytVideoId
+  const microlinkPromise = ytVideoId || wikiData
     ? Promise.resolve(null)
     : fetch(
         `https://api.microlink.io?url=${encodeURIComponent(fetchedUrl)}&screenshot=true`,
@@ -81,21 +96,26 @@ export default async function handler(req, res) {
         .then(d => d?.data?.screenshot?.url || d?.data?.image?.url || null)
         .catch(() => null);
 
+  // For Wikipedia, call Claude without web search — pass the extract directly
+  const wikiContext = wikiData?.extract
+    ? `\n\nArticle extract: ${wikiData.extract.slice(0, 500)}`
+    : "";
+
   const anthropicPromise = fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-api-key": process.env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
-      "anthropic-beta": "web-search-2025-03-05",
+      ...(wikiData ? {} : { "anthropic-beta": "web-search-2025-03-05" }),
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1000,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      ...(wikiData ? {} : { tools: [{ type: "web_search_20250305", name: "web_search" }] }),
       messages: [{
         role: "user",
-        content: `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${fetchedUrl}${ytContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
+        content: `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${fetchedUrl}${ytContext}${wikiContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. ${wikiData ? "Use the article extract provided above to understand the content." : "Search the web for this URL to understand what the content is about."}\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
       }],
     }),
   });
