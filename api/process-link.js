@@ -104,10 +104,18 @@ export default async function handler(req, res) {
     return lastEnd > max * 0.5 ? text.slice(0, lastEnd + 1) : cut.trimEnd() + "…";
   };
 
-  // Only use Wikipedia data if both title and extract are present (guards against error responses)
+  // Only use Wikipedia REST data if both title and extract are present (guards against error responses)
   const validWiki = wikiData?.extract && wikiData?.title ? wikiData : null;
   const wikiSummary = validWiki ? sentenceTrunc(validWiki.extract, 400) : null;
   const wikiPageTitle = validWiki?.title || null;
+
+  // If Wikipedia URL but REST API failed, derive article topic from the URL itself
+  const wikiArticleName = !validWiki && wikiTitle
+    ? wikiTitle.replace(/_/g, " ").replace(/\(.*?\)/g, "").trim()
+    : null;
+
+  // Wikipedia path: never use web search — Claude knows Wikipedia content from training
+  const isWikiPath = validWiki || wikiArticleName;
 
   const anthropicPromise = fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -115,16 +123,18 @@ export default async function handler(req, res) {
       "Content-Type": "application/json",
       "x-api-key": process.env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
-      ...(validWiki ? {} : { "anthropic-beta": "web-search-2025-03-05" }),
+      ...(!isWikiPath ? { "anthropic-beta": "web-search-2025-03-05" } : {}),
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: validWiki ? 200 : 1000,
-      ...(validWiki ? {} : { tools: [{ type: "web_search_20250305", name: "web_search" }] }),
+      max_tokens: isWikiPath ? 400 : 1000,
+      ...(!isWikiPath ? { tools: [{ type: "web_search_20250305", name: "web_search" }] } : {}),
       messages: [{
         role: "user",
         content: validWiki
           ? `Given this Wikipedia article extract, pick the best category.\n\nTitle: ${validWiki.title}\nExtract: ${validWiki.extract.slice(0, 300)}\n\n${categoryInstruction}\n\nRespond with ONLY valid JSON: {"category": "..."}`
+          : wikiArticleName
+          ? `Generate metadata for a Wikipedia article about "${wikiArticleName}" for a content feed card.\n\n${note ? `User note: ${note}\n\n` : ""}Instructions:\n1. Use your knowledge of this topic to write a compelling, concise title (max 60 chars).\n2. Write a short summary of what this Wikipedia article covers (max 300 chars). Be specific.\n3. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks:\n{"title": "...", "summary": "...", "category": "..."}`
           : `Analyze this URL and generate metadata for a content feed card.\n\nURL: ${fetchedUrl}${ytContext}\n${note ? `User note: ${note}\n` : ""}\nInstructions:\n1. Search the web for this URL to understand what the content is about.\n2. Generate a compelling, concise title (max 60 chars).\n3. Generate a short summary of what this content is about (max 300 chars). Be specific about what the reader/viewer/listener will get from this content.\n4. ${categoryInstruction}\n\nRespond with ONLY valid JSON, no markdown backticks, no preamble:\n{"title": "...", "summary": "...", "category": "..."}`,
       }],
     }),
