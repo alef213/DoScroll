@@ -13,7 +13,6 @@ export default async function handler(req, res) {
 
   const { url, note, userCategory, categoriesList } = req.body;
 
-  // Input validation
   if (!url || typeof url !== "string" || url.length > 2048) {
     return res.status(400).json({ error: "Invalid URL" });
   }
@@ -32,44 +31,65 @@ export default async function handler(req, res) {
 
   const rawUrl = url.startsWith("http") ? url : `https://${url}`;
 
-  // Resolve redirects (e.g. share.google links)
+  // Detect Wikipedia early so we can skip the slow redirect-resolution fetch
+  const isWikiUrl = /^https?:\/\/[a-z]{2,}\.wikipedia\.org\/wiki\//i.test(rawUrl);
+
+  // For Wikipedia skip redirect resolution (saves 3-5s and avoids timeouts).
+  // For everything else use HEAD (no body download) to follow redirects quickly.
   let fetchedUrl = rawUrl;
-  try {
-    const r = await fetch(rawUrl, {
-      method: "GET", redirect: "follow", signal: AbortSignal.timeout(5000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
-    });
-    if (r.url && r.url !== rawUrl) fetchedUrl = r.url;
-  } catch { /* keep original */ }
+  if (!isWikiUrl) {
+    try {
+      const r = await fetch(rawUrl, {
+        method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(3000),
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; DoScroll/1.0)" },
+      });
+      if (r.url && r.url !== rawUrl) fetchedUrl = r.url;
+    } catch { /* keep original */ }
+  }
 
   const ytMatch = fetchedUrl.match(
     /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
   );
   const ytVideoId = ytMatch ? ytMatch[1] : null;
 
-  // Detect Wikipedia URLs
-  const wikiMatch = fetchedUrl.match(/^https?:\/\/([a-z]{2,})\.wikipedia\.org\/wiki\/(.+)/);
+  const wikiMatch = fetchedUrl.match(/^https?:\/\/([a-z]{2,})\.wikipedia\.org\/wiki\/([^?#]+)/i);
   const wikiLang = wikiMatch ? wikiMatch[1] : null;
   const wikiTitle = wikiMatch ? decodeURIComponent(wikiMatch[2]) : null;
 
-  // For YouTube: fetch oEmbed first so we can pass the title to the AI
-  const ytOembed = ytVideoId
-    ? await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`, { signal: AbortSignal.timeout(5000) })
-        .then(r => r.json()).catch(() => null)
+  // Run YouTube oEmbed and Wikipedia REST API in parallel
+  const [ytOembed, wikiData] = await Promise.all([
+    ytVideoId
+      ? fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(fetchedUrl)}&format=json`,
+          { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null)
+      : Promise.resolve(null),
+    wikiTitle
+      ? fetch(`https://${wikiLang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle)}`,
+          { headers: { "User-Agent": "DoScroll/1.0" }, signal: AbortSignal.timeout(5000) })
+          .then(r => r.json()).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const sentenceTrunc = (text, max) => {
+    if (!text || text.length <= max) return text || "";
+    const cut = text.slice(0, max);
+    const lastEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+    return lastEnd > max * 0.5 ? text.slice(0, lastEnd + 1) : cut.trimEnd() + "…";
+  };
+
+  // validWiki requires both title and extract (guards against Wikipedia error responses)
+  const validWiki = wikiData?.extract && wikiData?.title ? wikiData : null;
+  const wikiSummary = validWiki ? sentenceTrunc(validWiki.extract, 400) : null;
+  const wikiPageTitle = validWiki?.title || null;
+
+  // Fallback: if Wikipedia URL but REST API gave no extract, use article name from URL
+  const wikiArticleName = !validWiki && wikiTitle
+    ? wikiTitle.replace(/_/g, " ").replace(/\(.*?\)/g, "").trim()
     : null;
 
-  // For Wikipedia: fetch the REST API summary directly
-  const wikiData = wikiTitle
-    ? await fetch(
-        `https://${wikiLang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle)}`,
-        { headers: { "User-Agent": "DoScroll/1.0" }, signal: AbortSignal.timeout(5000) }
-      ).then(r => r.json()).catch(() => null)
-    : null;
+  const isWikiPath = !!(validWiki || wikiArticleName);
+  const ytContext = ytOembed ? `\nVideo title: "${ytOembed.title}" by ${ytOembed.author_name}` : "";
 
-  const ytContext = ytOembed
-    ? `\nVideo title: "${ytOembed.title}" by ${ytOembed.author_name}`
-    : "";
-
+  // All three promises run in parallel from here
   const ogImagePromise = ytVideoId
     ? Promise.resolve(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`)
     : validWiki?.thumbnail?.source
@@ -87,35 +107,14 @@ export default async function handler(req, res) {
         return m ? m[1] : null;
       }).catch(() => null);
 
-  const microlinkPromise = ytVideoId || validWiki
+  const microlinkPromise = ytVideoId || isWikiPath
     ? Promise.resolve(null)
     : fetch(
         `https://api.microlink.io?url=${encodeURIComponent(fetchedUrl)}&screenshot=true`,
-        { signal: AbortSignal.timeout(10000) }
+        { signal: AbortSignal.timeout(8000) }
       ).then(r => r.json())
         .then(d => d?.data?.screenshot?.url || d?.data?.image?.url || null)
         .catch(() => null);
-
-  // Truncate text at a sentence boundary
-  const sentenceTrunc = (text, max) => {
-    if (!text || text.length <= max) return text || "";
-    const cut = text.slice(0, max);
-    const lastEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
-    return lastEnd > max * 0.5 ? text.slice(0, lastEnd + 1) : cut.trimEnd() + "…";
-  };
-
-  // Only use Wikipedia REST data if both title and extract are present (guards against error responses)
-  const validWiki = wikiData?.extract && wikiData?.title ? wikiData : null;
-  const wikiSummary = validWiki ? sentenceTrunc(validWiki.extract, 400) : null;
-  const wikiPageTitle = validWiki?.title || null;
-
-  // If Wikipedia URL but REST API failed, derive article topic from the URL itself
-  const wikiArticleName = !validWiki && wikiTitle
-    ? wikiTitle.replace(/_/g, " ").replace(/\(.*?\)/g, "").trim()
-    : null;
-
-  // Wikipedia path: never use web search — Claude knows Wikipedia content from training
-  const isWikiPath = validWiki || wikiArticleName;
 
   const anthropicPromise = fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -149,7 +148,7 @@ export default async function handler(req, res) {
     data.wikiSummary = wikiSummary;
     res.status(apiRes.status).json(data);
   } catch (err) {
-    console.error("Anthropic API error:", err);
+    console.error("process-link error:", err);
     res.status(500).json({ error: "Failed to process link" });
   }
 }
