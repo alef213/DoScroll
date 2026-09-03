@@ -555,26 +555,33 @@ function SearchOverlay({ posts, onClose, onStar, onRemove, onArchive, onRestore,
 }
 
 // ─── Auth Screen ────────────────────────────────────────────
+// Passwordless: enter email, then a 6-digit code sent by Supabase.
+// signInWithOtp creates the account automatically on first use, so
+// there's no separate sign-up flow to maintain.
 function AuthScreen() {
-  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [step, setStep] = useState("email"); // "email" | "code"
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  const handle = async () => {
+  const sendCode = async () => {
     setLoading(true); setError(null); setSuccess(null);
-    if (mode === "login") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setError(error.message);
-    } else {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) setError(error.message);
-      else setSuccess("Check your email to confirm your account, then log in.");
-    }
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) setError(error.message);
+    else { setSuccess(`Code sent to ${email}.`); setStep("code"); }
     setLoading(false);
   };
+
+  const verifyCode = async () => {
+    setLoading(true); setError(null); setSuccess(null);
+    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+    if (error) setError(error.message);
+    setLoading(false);
+  };
+
+  const handle = () => step === "email" ? sendCode() : verifyCode();
 
   return (
     <div style={{
@@ -594,44 +601,44 @@ function AuthScreen() {
         padding: "28px 24px", border: "1px solid #e4e4e8",
         boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
       }}>
-        <div style={{ display: "flex", marginBottom: "24px", borderRadius: "10px", overflow: "hidden", border: "1px solid #e4e4e8" }}>
-          {["login", "signup"].map(m => (
-            <button key={m} onClick={() => { setMode(m); setError(null); setSuccess(null); }}
-              style={{
-                flex: 1, padding: "10px", border: "none", cursor: "pointer",
-                background: mode === m ? "#6366f1" : "#f5f5f7",
-                color: mode === m ? "#fff" : "#8e8ea0",
-                fontSize: "13px", fontWeight: 600, fontFamily: "inherit",
-                transition: "all 0.15s ease",
-              }}>
-              {m === "login" ? "Log In" : "Sign Up"}
+        {step === "email" ? (
+          <>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#8e8ea0", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="you@example.com" autoFocus
+              onKeyDown={e => e.key === "Enter" && handle()}
+              style={{ width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #e4e4e8", background: "#f5f5f7", fontSize: "14px", color: "#1a1a2e", outline: "none", fontFamily: "inherit", marginBottom: "20px" }} />
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: "13px", color: "#4a4a5a", marginBottom: "16px" }}>
+              We sent a 6-digit code to <strong>{email}</strong>.
+            </div>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#8e8ea0", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Code</label>
+            <input type="text" inputMode="numeric" autoComplete="one-time-code" value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456" autoFocus
+              onKeyDown={e => e.key === "Enter" && handle()}
+              style={{ width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #e4e4e8", background: "#f5f5f7", fontSize: "20px", letterSpacing: "4px", textAlign: "center", color: "#1a1a2e", outline: "none", fontFamily: "inherit", marginBottom: "12px" }} />
+            <button onClick={() => { setStep("email"); setCode(""); setError(null); setSuccess(null); }}
+              style={{ background: "none", border: "none", color: "#6366f1", fontSize: "12px", cursor: "pointer", fontFamily: "inherit", padding: 0, marginBottom: "16px" }}>
+              Use a different email / resend
             </button>
-          ))}
-        </div>
-
-        <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#8e8ea0", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Email</label>
-        <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-          placeholder="you@example.com"
-          style={{ width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #e4e4e8", background: "#f5f5f7", fontSize: "14px", color: "#1a1a2e", outline: "none", fontFamily: "inherit", marginBottom: "16px" }} />
-
-        <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#8e8ea0", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Password</label>
-        <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-          placeholder="••••••••"
-          onKeyDown={e => e.key === "Enter" && handle()}
-          style={{ width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #e4e4e8", background: "#f5f5f7", fontSize: "14px", color: "#1a1a2e", outline: "none", fontFamily: "inherit", marginBottom: "20px" }} />
+          </>
+        )}
 
         {error && <div style={{ padding: "10px 14px", background: "rgba(239,68,68,0.08)", borderRadius: "8px", color: "#ef4444", fontSize: "13px", marginBottom: "16px" }}>{error}</div>}
         {success && <div style={{ padding: "10px 14px", background: "rgba(16,185,129,0.08)", borderRadius: "8px", color: "#10b981", fontSize: "13px", marginBottom: "16px" }}>{success}</div>}
 
-        <button onClick={handle} disabled={loading || !email || !password}
+        <button onClick={handle} disabled={loading || (step === "email" ? !email : code.length !== 6)}
           style={{
             width: "100%", padding: "13px", borderRadius: "10px", border: "none",
-            background: email && password ? "#6366f1" : "#e4e4e8",
-            color: email && password ? "#fff" : "#8e8ea0",
-            fontSize: "15px", fontWeight: 600, cursor: email && password ? "pointer" : "not-allowed",
+            background: (step === "email" ? email : code.length === 6) ? "#6366f1" : "#e4e4e8",
+            color: (step === "email" ? email : code.length === 6) ? "#fff" : "#8e8ea0",
+            fontSize: "15px", fontWeight: 600, cursor: (step === "email" ? email : code.length === 6) ? "pointer" : "not-allowed",
             fontFamily: "inherit", transition: "all 0.2s ease",
           }}>
-          {loading ? "..." : mode === "login" ? "Log In" : "Create Account"}
+          {loading ? "..." : step === "email" ? "Send Code" : "Verify & Log In"}
         </button>
       </div>
     </div>
@@ -656,12 +663,21 @@ export default function DoScrollApp() {
   const feedRef = useRef(null);
   const touchStartY = useRef(0);
 
+  const [loadError, setLoadError] = useState(null);
+
+  // Guards against Supabase calls that never settle (e.g. the known GoTrue
+  // lock deadlock on mobile browsers after a tab is backgrounded).
+  const withTimeout = (promise, ms, label) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out. Check your connection and retry.`)), ms)),
+  ]);
+
   // Auth state
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
-    });
+    withTimeout(supabase.auth.getSession(), 8000, "Session check")
+      .then(({ data: { session } }) => setSession(session))
+      .catch((err) => setLoadError(err.message || "Could not check your session."))
+      .finally(() => setAuthLoading(false));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
@@ -672,14 +688,21 @@ export default function DoScrollApp() {
   useEffect(() => {
     if (!session) return;
     const load = async () => {
-      const [postsRes, catsRes] = await Promise.all([
-        supabase.from("posts").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false }),
-        supabase.from("user_categories").select("categories").eq("user_id", session.user.id).maybeSingle(),
-      ]);
-      if (postsRes.data?.length > 0) setPosts(shuffleArray(postsRes.data.map(fromRow)));
-      else setPosts(shuffleArray(SAMPLE_POSTS));
-      if (catsRes.data?.categories?.length) setCategories(catsRes.data.categories);
-      setLoaded(true);
+      try {
+        const [postsRes, catsRes] = await withTimeout(Promise.all([
+          supabase.from("posts").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false }),
+          supabase.from("user_categories").select("categories").eq("user_id", session.user.id).maybeSingle(),
+        ]), 10000, "Feed load");
+        if (postsRes.error) throw postsRes.error;
+        if (catsRes.error) throw catsRes.error;
+        if (postsRes.data?.length > 0) setPosts(shuffleArray(postsRes.data.map(fromRow)));
+        else setPosts(shuffleArray(SAMPLE_POSTS));
+        if (catsRes.data?.categories?.length) setCategories(catsRes.data.categories);
+      } catch (err) {
+        setLoadError(err.message || "Could not load your feed.");
+      } finally {
+        setLoaded(true);
+      }
     };
     load();
   }, [session]);
@@ -853,6 +876,25 @@ export default function DoScrollApp() {
           do<span style={{ color: "#6366f1" }}>Scroll</span>
         </div>
         <div style={{ fontSize: "13px", color: "#8e8ea0" }}>Loading your feed...</div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{
+        width: "100%", maxWidth: 480, margin: "0 auto", height: "100vh",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        background: "#f0f2f5", fontFamily: "'DM Sans', system-ui, sans-serif", padding: "24px", textAlign: "center",
+      }}>
+        <div style={{ fontSize: "28px", fontWeight: 700, marginBottom: "12px", color: "#1a1a2e" }}>
+          do<span style={{ color: "#6366f1" }}>Scroll</span>
+        </div>
+        <div style={{ fontSize: "13px", color: "#e74c3c", marginBottom: "16px" }}>{loadError}</div>
+        <button onClick={() => window.location.reload()} style={{
+          padding: "10px 20px", borderRadius: "10px", border: "none", background: "#6366f1",
+          color: "#fff", fontSize: "14px", fontWeight: 600, cursor: "pointer",
+        }}>Retry</button>
       </div>
     );
   }
